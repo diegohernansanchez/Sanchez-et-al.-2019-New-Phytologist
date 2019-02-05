@@ -1,0 +1,1605 @@
+
+###
+# DISCLAIMER:
+# These were the workflows for solving several bioinformatic analysis for Sanchez et al. (2019) New Phytologist.
+# I used standard open-source software in Linux command-line, and custom-made python scripts (I kept here the original names of the python script's files to match my records)
+# It may also involve some manual organization of files, manual assessment of results and manual processing to reach final results.
+# Although it solved the problems faced at the time, note that this is a beginner's code, as I'm not a professional bioinformatician or data scientist.
+# As such, it may probably look overly complicated; and other more advanced solutions are likely simpler or more effective.
+# The workflow may also displays some historical contingencies, as I'm learning while doing.
+# None of this work would be possible without the kind bioinformatics support of Varodom Charoensawan, Hugo Tavares, Jeremy Gruel, Hajk-Georg Drost,
+# Anna Gogleva and Yassin Refahi. The last R scrip was kindly shared by Marco Catoni.
+#
+# Diego H. Sanchez (diego.sanchez@agro.uba.ar)
+###
+
+###
+# Workflow for re-annotate very young LTR retroTEs in tomato
+# Workflow for estimation of LTR retroTEs expression
+# Workflow for analisis MESSI
+# Workflow for analisis of DNA-seq
+# Workflow for analisis smRNAs 
+# Workflow for analisis Bis-seq 
+###
+
+
+
+##################################################################
+##################################################################
+### Workflow for re-annotate very young LTR retroTEs in tomato ###
+##################################################################
+##################################################################
+# Considering LTR retroTE-related areas as recognized by Jouffroy et al.(2016) 
+
+
+
+########################################################
+### A - Recover gff Class1 annotation from ITAG2.4 repeats (select size > 999 bp)
+########################################################
+
+
+
+### Generate BED file for ITAG2.4 LTR annotation LYCOPERSICUM
+# Use S_lycopersicum_chromosomes.2.50.fa and ITAG2.4_repeats_aggressive.gff3 files from Solgenomics (www.solgenomics.net)
+
+#FILE: 		1_Parse_gff3_repeatagressive_recoverLTRs_generateBED_2nd.py
+#Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio import Seq
+
+### Path & Files
+path_genome =  "~/PATH/"
+path = "~/PATH/"
+
+inputGenome="S_lycopersicum_chromosomes.2.50.fa"
+inputFile="ITAG2.4_repeats_aggressive.gff3" 
+
+Output_bed="ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.bed"
+
+################################################################################
+###define CountLines fx to count the # of lines from files 
+################################################################################
+def CountLines (pathy,filename):  
+    with open ("%s%s" %(pathy,filename), 'r') as myfile: 
+       if ".txt" or ".gff3" in filename:
+           count=sum(1 for line in myfile) 
+       elif ".fasta" or ".fa" or ".fas" in filename: 
+           count=sum(1 for line in myfile if line.startswith(">"))
+       else:
+           print "Unrecognized file extension"              
+    return count   
+################################################################################
+
+number_features = CountLines (path_genome,inputGenome)
+print "\n",'# features in genome is:     ',number_features
+
+number_features = CountLines (path_genome,inputFile)
+print '# features in file is:       ',number_features,'\n'
+
+### Unpack genome 
+
+Genome_List = ["SL2.50ch00","SL2.50ch01","SL2.50ch02","SL2.50ch03","SL2.50ch04","SL2.50ch05","SL2.50ch06","SL2.50ch07","SL2.50ch08","SL2.50ch09","SL2.50ch10","SL2.50ch11","SL2.50ch12"]
+
+Genome_seq = {}
+input_handle_genome = open("%s%s" %(path_genome,inputGenome), "rU")      
+for genome_item in SeqIO.parse(input_handle_genome,"fasta"):
+    chromosome = str(genome_item.id)    
+    if chromosome in Genome_List:
+        Genome_seq[chromosome] = str(genome_item.seq)    
+        print chromosome, len(genome_item.seq)
+    else:
+        print "Not present the chromosome: ", chromosome, len(genome_item.seq)
+        
+input_handle_genome.close()
+print "Unpacked chromosomes in time:                      --- %s minutes run ---\n" %((time.time()-start_time)/60)
+    
+### First parse and selects
+Class_list = set() #store type of
+count=0 # to name output
+
+out_handle_gff = open("%s%s" %(path,Output_bed),"w") # open outfile gff3  
+with open ("%s%s" %(path_genome,inputFile)) as infile:
+    for in_line in infile:
+        Class = ""  
+      
+        if in_line.startswith('#'):continue                   
+        line = in_line.strip('\n')  
+        parts = line.strip().split("\t")      # parts is a list out of the line incoming. parts [0] is chromosome, parts [2] is exon or transcript, parts[3] is position (start-end)   
+        seqid_,source_,type_,start_,end_,score_,strand_,phase_,gff_attribute_ = str(parts[0]),str(parts[1]),str(parts[2]),str(parts[3]),str(parts[4]),str(parts[5]),str(parts[6]),str(parts[7]),str(parts[8]) 
+        
+        size = int(end_)-int(start_)
+        if size < 0: print "Warning", in_line
+                                                                                                                 
+        gff_attribute = gff_attribute_.strip().split(";")
+            
+        for attribute in gff_attribute:
+
+            reference,description = attribute.split("=") 
+            if reference =="repeat_class":
+                Class_list.add(description)
+                Class = description 
+                                                                                          
+        # Write outfile
+        if "LTR" in Class and size > 999:           
+            
+            start_bed = str((int(start_)-5001)) # consider the -1 mode for .BEDTOOLS
+            end_bed = str((int(end_)+5000)) 
+            
+            if int(start_bed)<0:
+                start_bed="1" # avoid extending throught negative            
+                print in_line
+                print seqid_,start_bed,end_bed,"\n"
+            
+            if int(end_bed) > len(Genome_seq[seqid_]): # avoid extendign beyond chromosome limits
+                end_bed = len(Genome_seq[seqid_])
+                print in_line
+                print seqid_,start_bed,end_bed,"\n"
+                                               
+            out_handle_gff.write("{}\t{}\t{}\t{}\n".format(seqid_,start_bed,end_bed,count))   
+            count+=1    
+ 
+out_handle_gff.close()                                 
+
+print Class_list,"\n"
+number_features = CountLines (path,Output_bed)
+print '# features Out_File is:      ', number_features,'\n'
+
+print "gff3 file parsed and fasta recovered in            --- %s minutes run ---" %((time.time()-start_time)/60)  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+### recover fasta 
+
+$ bedtools getfasta -fi ~/PATH/S_lycopersicum_chromosomes.2.50.fa \
+-bed ~/PATH/ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.bed \
+-fo ~/PATH/ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.fasta -name &
+
+
+
+########################################################
+### B - ANNOTATION for S. lycopersicum 2.50, run LTRharves at 98% LTRidentity
+########################################################
+
+
+
+###generates index for LTRharvest
+
+$ ~/PATH/gt suffixerator -db ~/PATH/ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.fasta -indexname ~/PATH/ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.fsa -tis -suf -lcp -des -ssp -sds -dna &
+
+
+### run LTRharvest at 98% LTRidentity with 'NO MOTIFs' in ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive data
+
+$ ~/PATH/gt ltrharvest -index ~/PATH/ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.fsa \
+-v -mintsd 3 -maxtsd 6 -seed 30 -xdrop 5 -mat 2 -mis -2 -ins -3 -del -3 -minlenltr 100 -maxlenltr 7000 -mindistltr 1000 -maxdistltr 30000 \
+-similar 98 -overlaps best -vic 60 -longoutput > log_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive.txt &
+
+
+### Generate GFF3 file for NOMOTIF S. lycopersicum ITAG2.4 LTRs at 98%. Recovers positions from bed and motif from sequence
+# Run python script
+# FILE: 		2_Analyze_LTRharvest_output_NOMOTIF_withOUT_BLASTN_generateGFF3.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+import subprocess
+from Bio.Blast.Applications import NcbiblastnCommandline
+from operator import itemgetter
+
+### Files & path ###
+path = "~/PATH/" 
+
+inputFile ="log_LTRharvest_97.5_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive.txt"
+InFile_fasta = "ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.fasta"
+Infile_bed = "ITAG2.4_LTR_selected_EXPANDED5000_repeats_aggressive.bed" # used to recover genome positions
+
+outputFile = "firstGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST.gff3"
+
+################################################################################
+def CountLines (pathy,filename):  
+    with open ("%s%s" %(pathy,filename), 'r') as myfile: 
+       if ".txt" or ".gff" or ".gff3" or ".bed" in filename:
+           count=sum(1 for line in myfile if line is not "\n") 
+       elif ".fasta" or ".fa" or ".fas" in filename: 
+           count=sum(1 for line in myfile if line.startswith(">"))
+       else:
+           print "Unrecognized file extension"              
+    return count   
+################################################################################
+
+chromosomes_Dict = {0:"00",1:"01",2:"02",3:"03",4:"04",5:"05",6:"06",7:"07",8:"08",9:"09",10:"10",11:"11",12:"12"}
+
+############
+### MAIN ###
+############
+
+number_features = CountLines (path,inputFile)
+print "\n"
+print "# features in LTRHarvest Log is:         ",number_features
+number_features = CountLines (path,InFile_fasta)
+print "# features in fasta file  is:            ",number_features
+number_features = CountLines (path,Infile_bed)
+print "# features in bed file  is:              ",number_features
+
+### Store fasta data
+input_handle_fasta = open("%s%s" %(path,InFile_fasta), "rU")    # opens .fasta with sequences
+Sequence_list = tuple(input_handle_fasta.readlines())      # all data in one step in memory as a list, and transform it into an iterable object
+input_handle_fasta.close()
+Repeats_Dict = {}
+for index,input_line in enumerate(Sequence_list):
+    input_line = str(input_line).rstrip()
+    if input_line.startswith(">"): # seq-nr is the position of the fasta file for the reported sequence
+        input_name = input_line.strip(">")
+        input_sequence = str(Sequence_list[index+1]).rstrip()
+        Repeats_Dict[input_name]=input_sequence #store key:value as name:sequence, nmes were otiginally from 0 to xxx
+print "Lenght of Repats_Dict:                   ",len(Repeats_Dict)  
+
+### Store bed data
+input_handle_bed = open("%s%s" %(path,Infile_bed), "rU")    
+BED_Dict = {}
+for input_line in input_handle_bed:
+    seqid_,start_bed,end_bed,ID = str(input_line).rstrip("\n").split("\t")
+    BED_Dict[str(ID)]=(seqid_,start_bed,end_bed) #store key:value as name:chr,start,end in genome
+input_handle_bed.close()
+print "Lenght of BED_Dict:                      ",len(BED_Dict),"\n"  
+
+### generate gff for NOMOTIF  
+outfile_gff3 = open("{}{}".format(path,outputFile),"w")          # this will be the new .gff3 file
+Recovered_list = set() #to acumulate parts of hits, avoiding reporting exactly the same TEs 
+  
+count = 0      
+with open ("{}{}".format(path,inputFile)) as infile:
+    for in_line in infile:
+                     
+        if in_line.startswith('#'):
+            continue
+        else:
+            print count 
+            line2 = [x for x in in_line.strip('\n').split(" ") if x !=""]
+            #s_ret, e_ret, l_ret, s_lLTR, e_lLTR, l_lLTR, TSD1,l_TSD1, s_rLTR, e_rLTR, l_rLTR, TSD2, l_TSD2, sim_LTRs, seq-nr 
+            s_ret,e_ret,l_ret,s_lLTR,e_lLTR,l_lLTR,TSD1,l_TSD1,s_rLTR,e_rLTR,l_rLTR,TSD2,l_TSD2,sim_LTRs,seq_nr = line2[0],line2[1],line2[2],line2[3],line2[4],line2[5],line2[6],line2[7],line2[8],line2[9],line2[10],line2[11],line2[12],line2[13],line2[14]
+            
+            if seq_nr in Repeats_Dict:
+                
+                ## Recover position from BED file
+                (Chr,start_bed,end_bed) = BED_Dict.get(seq_nr)
+                                            
+                ## Write .gff3 file for HTseq-count    
+                #first line of a .gff3 file, is the chromosome - seqID
+                # get the start and end from extended bed, real one is the difference with the TEs called withing by s_ret and e_ret
+                s_start = int(start_bed)+int(s_ret)          # note: potencial problem with 0 based BETtools and 1 based LTR Harvest
+                s_end = s_start+(int(l_ret))-1               # delete 1 to account for the 0 base coordinate coming from BEDtools start 
+                tag= Chr+":"+str(s_start)+"-"+str(s_end)     # generate name
+                e_5LTR = str(int(s_start)+int(l_lLTR))       # calculate end of 5LTR
+                s_3LTR = str(int(s_end)-int(l_rLTR))
+                
+                if tag not in Recovered_list: #avoids reporting twice the same TEs
+
+                    Recovered_list.add(tag) 
+
+                    ## Calculate motif and recover position info
+                    fragment_sequence = Repeats_Dict.get(seq_nr)
+                    TE_sequence = fragment_sequence[int(s_ret)-1:int(e_ret)] # python is 0 based but GFF3 is 1+based, so delete 1 from start
+                    motif = str(TE_sequence[:2])+".."+str(TE_sequence[-2:])
+                    if "N" in TE_sequence:
+                        Statu = "incomplete"
+                        print Statu,TE_sequence.count("N"),
+                        
+                    else:
+                        Statu = "complete"
+                        print Statu,
+                        #print len(TE_sequence),"\t",Chr,start_bed,end_bed,fragment_size,"\t",s_ret,e_ret,"\t",int(end_bed)-(fragment_size-int(e_ret))
+                    
+               
+                    if s_start==0: s_start=1                    # to avoid error: 'start too small' from HTSeq 
+                    
+                    newChr = Chr.replace("SL2.50ch","")
+                    ID = "newINT_"+newChr+"_"+str(count)        
+                    source_='LTRharvest'
+                    type_='exon'                                # for the column 3 (type) for exon, to call expression
+                    score_='0'
+                    strand_='+'           
+                    phase_='.'
+                                    
+                    attributes = []     # list to generates the attributes 
+                    attributes.insert (0,'Parent=%s' %ID)       # modify the attributes adding name 
+                    attributes.insert (1,'LTRsimilarity=%s' %sim_LTRs)                
+                    attributes.insert (2,'motive=%s'%motif)  
+                    attributes.insert (3,'Chr=%s' %Chr)   
+                    attributes.insert (4,'start(TE)=%s' %s_start)    
+                    attributes.insert (5,'end(TE)=%s' %s_end)    
+                    attributes.insert (6,'size(TE)=%s' %l_ret)  
+                    attributes.insert (7,'s(5LTR)=%s' %s_start) 
+                    attributes.insert (8,'e(5LTR)=%s' %e_5LTR) 
+                    attributes.insert (9,'size(5LTR)=%s' %l_lLTR)
+                    attributes.insert (10,'s(3LTR)=%s' %s_3LTR)
+                    attributes.insert (11,'e(3LTR)=%s' %s_end)
+                    attributes.insert (12,'size(3LTR)=%s' %l_rLTR)
+                    attributes.insert (13,'TSD=%s' %TSD2)
+                    attributes.insert (14,'size_TSD=%s' %l_TSD2)  
+                    attributes.insert (15,'Status=%s' %Statu)            
+                    attributes_ = ";".join(attributes)          # reconstitute the attributes_ the new attributes name
+                        
+                    print attributes_            
+                    outfile_gff3.write(Chr+"\t"+source_+"\t"+type_+"\t"+str(s_start)+"\t"+str(s_end)+"\t"+score_+"\t"+strand_+"\t"+phase_+"\t"+attributes_+"\n")
+                                                                                
+                    count +=1 
+
+outfile_gff3.close()                    
+number_features = CountLines (path,outputFile)
+print "# features in out file  is:              ",number_features
+
+### END ###
+print "Process time required: --- %s minutes run ---" %((time.time()-start_time)/60)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+##################################################################
+##################################################################
+### Workflow for estimation of LTR retroTEs expression         ###
+##################################################################
+##################################################################
+
+
+
+########################################################
+### C - sort and generate annotation final file for HT-seq, mixing TEs with non-overlapping genes
+########################################################
+
+$ sort -k1,1V -k4,4n -k5,5rn -k3,3r firstGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST.gff3 > firstGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST_sorted.gff3  
+
+
+# select those NOT annotated by Xu & Du (2014)
+# SL25_all_LTR_chino.gff3 is a curated file with the annotation from Xu & Du (2014) for tomato genome SL2.50
+
+$ bedtools intersect -v -a ~/PATH/firstGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST_sorted.gff3 \
+-b SL25_all_LTR_chino.gff3 \
+> secondGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST_NOCHINESE.gff3 &
+
+
+# agrupate the final list
+
+$ cat secondGFF3_LTRharvest_98_NOMOTIF_S_lycopersicum_LTR_selected_EXPANDED5000_repeats_aggressive_NOBLAST_NOCHINESE.gff3 SL25_all_LTR_chino.gff3 > SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq.gff3
+$ sort -k1,1V -k4,4n -k5,5rn -k3,3r SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq.gff3 > SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq_sorted.gff3
+
+
+# Test genes and annotated LTR elements all toghether
+# from ITAG2.4, select away genes potentially overlapping with the TEs
+# this is necessary because genome annotations many times wrongly call genes to ORFs from TEs and remmnants
+
+$ bedtools intersect -v -a ~/PATH/ITAG2.4_gene_models.gff3 \
+-b SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq_sorted.gff3 \
+> ITAG2.4_gene_models_intersected_withRETRO.gff3 &
+
+
+# final file
+$ cat ITAG2.4_gene_models_intersected_withRETRO.gff3 SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq_sorted.gff3 > ITAG2.4_gene_models_plus_LTRs_forPAPER_forHTseq.gff3
+$ sort -k1,1V -k4,4n -k5,5rn -k3,3r ITAG2.4_gene_models_plus_LTRs_forPAPER_forHTseq.gff3 > ITAG2.4_gene_models_plus_LTRs_forPAPER_forHTseq_sorted.gff3
+
+# final new added young elements: 261 
+
+
+
+########################################################
+### D - Trim and map libraries
+########################################################
+
+
+### Manually trimm raw data (and check quality)
+
+$ java -jar ~/PATH/trimmomatic-0.32.jar PE -threads 4 -trimlog trimmolog.txt \
+SAMPLE_1.fastq.gz \
+SAMPLE_2.fastq.gz \
+SAMPLE_1_raw_trimmo_paired_2_10_5_1.fastq \
+SAMPLE_1_raw_trimmo_unpaired_2_10_5_1.fastq \
+SAMPLE_2_raw_trimmo_paired_2_10_5_1.fastq \
+SAMPLE_2_raw_trimmo_unpaired_2_10_5_1.fastq \
+ILLUMINACLIP:~/PATH/Trimmomatic-0.32/adapters/TruSeq2-PE.fa:2:10:5:1 &
+
+
+# gzip files
+$ gzip SAMPLE_1_raw_trimmo_paired_2_10_5_1.fastq &
+$ gzip SAMPLE_2_raw_trimmo_paired_2_10_5_1.fastq &
+
+
+### Map with STAR
+# Note: for expression of the initial analysis a less stringent --outFilterMultimapNmax 50 was used
+# Note: for figures was used --outFilterMultimapNmax 10 to avoid over-inflate apparent expression
+# Note: for subsequent estimation of MESSI transcript levels, a more stringent --outFilterMultimapNmax 1 was used.
+# This avoids multi-mapper reads aiding in estimating more precisely individual element expression and preventing over-inflated inferred transcript levels.
+# Run python script
+# FILE:		4_Workflow_for_tomato_SAMPLES_29_30_31__32_33_34_STAR_PE_COMPLETO_multihits.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+import subprocess
+
+# PLACE FILE and RUN from path_output!
+
+### Files & path ###
+path_input_sample = "~/PATH/" 
+path_output      = "~/PATH/"     # NOTE: STAR requires a prefix for all generated files!
+path_star_index =  "~/PATH/"     # goes with the reference to the files. 
+GFF3_annotation =   "ITAG2.4_gene_models.gff3"          # standart annotation of the genome. Clarify 
+
+My_List = ["SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE"]
+
+################################################################################
+###define CountLines fx to count the lines a the file 
+################################################################################
+def CountLines (pathy,filename):   
+    with open ("%s%s" %(pathy,filename), 'r') as myfile: #open the input tab-file with gene exppression  
+        count=sum(1 for line in myfile)       
+    return count   #return the number of lines    
+################################################################################
+
+############
+### MAIN ###
+############
+
+#loop samples
+for sample in My_List:
+    print "\n",sample
+    
+    ### mapping STAR 
+    InFile1 = "%s_1_raw_trimmo_paired_2_10_5_1.fastq.gz" %(sample) #--readFilesCommand zcat, if they are zipped
+    InFile2 = "%s_2_raw_trimmo_paired_2_10_5_1.fastq.gz" %(sample)
+    
+    p = subprocess.Popen(["STAR --runMode alignReads --runThreadN 4 --alignEndsType EndToEnd --genomeDir %s --readFilesCommand zcat --readFilesIn %s%s %s%s --twopassMode Basic --outFileNamePrefix %s%s_ --outReadsUnmapped None  --outFilterMultimapNmax 50 --outMultimapperOrder Random --outSAMtype BAM SortedByCoordinate --alignMatesGapMax 100000 --alignIntronMax 100000" %(path_star_index,path_input_sample,InFile1,path_input_sample,InFile2,path_output,sample)], shell=True)  
+    p.wait()
+    print "Mapping finished in --- %s minutes run ---" %((time.time()-start_time)/60) 
+       
+    ### rename alignment 
+    InFile = "%s_Aligned.sortedByCoord.out.bam" %(sample)
+    OutFile = "%s_trimmo_star_ITAG2.4.bam" %(sample) 
+    
+    p = subprocess.Popen(["mv %s%s %s%s" %(path_output,InFile,path_output,OutFile)], shell=True) 
+    p.wait()
+    print "Renamed Aligment --- %s minutes run ---" %((time.time()-start_time)/60) 
+                           
+    ### no need to sort
+                                                                                                                
+    ### remove duplicates
+    InFile = "%s_trimmo_star_ITAG2.4.bam" %(sample) 
+    OutFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.bam" %(sample) 
+    
+    p = subprocess.Popen(["java -Xmx4g -jar /home/diegosanchez/Picard/picard.jar MarkDuplicates INPUT= %s%s OUTPUT= %s%s METRICS_FILE=dup.txt VALIDATION_STRINGENCY=LENIENT REMOVE_DUPLICATES=true" %(path_output,InFile,path_output,OutFile)], shell=True) 
+    p.wait()
+    print "BAM file deduplicated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+    
+    ### index just in case
+    InFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.bam" %(sample) 
+    
+    p = subprocess.Popen(["samtools index %s%s" %(path_output,InFile)], shell=True) 
+    p.wait()
+    print "Index generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+  
+    ### report deduplicated library sizes ###
+    # deduplicated .bam
+    InFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.bam" %(sample) 
+    OutFile = "deduplicated_library_%s_trimmo_star_ITAG2.4_rmdup_picard.txt" %(sample) 
+    
+    with open ("%s%s" %(path_input_sample,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools flagstat %s%s" %(path_output,InFile)], shell=True, stdout = myfile)  
+            p.wait()
+            myfile.flush()
+    print "Counted deduplicated_library in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+    
+    ### bam to sam
+    InFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.bam" %(sample) 
+    OutFile ="%s_trimmo_star_ITAG2.4_rmdup_picard.sam" %(sample) 
+    
+    p = subprocess.Popen(["samtools view -h -o %s%s %s%s" %(path_output,OutFile,path_output,InFile)], shell=True) 
+    p.wait()
+    print "BAM to SAM files in: ", "--- %s minutes run ---" %((time.time()-start_time)/60) 
+                                                                           
+### END ###
+print "Total time required for processing: --- %s minutes run ---" %((time.time()-start_time)/60)  
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+########################################################
+### D - count with HTseq
+########################################################
+
+
+
+# use SL25_all_LTR_chino_plusLTRharvest_PAPER_forHTseq_sorted.gff3
+# Run python script
+# FILE:		5_Workflow_for_HTseq_SAMPLES_29_30_31__32_33_34.py		
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+import subprocess
+
+# PLACE FILE and RUN from path_output!
+
+### Files & path ###
+path_input_sample = "~/PATH/" 
+path_output      = "~/PATH/"     # NOTE: STAR requires a prefix for all generated files!
+path_star_index =  "~/PATH/"     # goes with the reference to the files
+GFF3_annotation =   "ITAG2.4_gene_models.gff3"          # standart annotation of the genome. Clarify 
+
+path_n_file_GTF_HTseq = "~/PATH/ITAG2.4_gene_models_plus_LTRs_forPAPER_forHTseq_sorted.gff3" ### this file is the annotation prepared for HTseq
+path_output_HTseq = "~/PATH/"
+
+My_List = ["SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE"]
+
+################################################################################
+###define CountLines fx to count the lines a the file 
+################################################################################
+def CountLines (pathy,filename):
+    
+    with open ("%s%s" %(pathy,filename), 'r') as myfile: #open the input tab-file with gene exppression  
+        count=sum(1 for line in myfile)       
+    return count   #return the number of lines    
+################################################################################
+
+############
+### MAIN ###
+############
+
+#loop samples
+for sample in My_List:
+    print "\n",sample
+        
+    ###count with HTSeqcount 
+    InFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.sam" %(sample) 
+    OutFile = "HTcount_genes_LTRs_PAPER_%s_trimmo_star_ITAG2.4_rmdup_picard_strandedNO.txt" %(sample)
+    
+    with open ("%s%s" %(path_output_HTseq,OutFile), 'w') as myfile:
+           p = subprocess.Popen(["htseq-count --type=exon --stranded=no --idattr=Parent --quiet %s%s %s" %(path_output,InFile,path_n_file_GTF_HTseq)], shell=True, stdout = myfile)  
+           p.wait()
+           myfile.flush()
+    print "Counted genes in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60) 
+                                                                        
+### END ###
+print "Total time required for processing: --- %s minutes run ---" %((time.time()-start_time)/60)  
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+##################################################################
+##################################################################
+### Workflow for analisis MESSI 			       ###
+##################################################################
+##################################################################
+# similar workflow applies to S.pennellii
+
+
+
+########################################################
+### F - Recognize MESSI elements - example for S.lycopersicum, only complete elements, 'second pass'
+########################################################
+
+
+
+### Blast file MESSI_solanums-lahptm.fasta against S.lycopericum genome
+# MESSI_solanums-lahptm.fasta file originated from a 'first pass' of similar analysis blasting Sly_MESSI_17/INT_03_147 against all Solanums.
+# generate mask for low complexity genome sequences, and then blastn
+
+& dustmasker -in S_lycopersicum_chromosomes.2.50.fa -infmt fasta -parse_seqids -outfmt maskinfo_asn1_bin \
+-out S_lycopersicum_chromosomes.2.50.fa.dust.asnb &
+
+& makeblastdb -in S_lycopersicum_chromosomes.2.50.fa 
+-input_type fasta 
+-dbtype nucl -parse_seqids \
+-mask_data S_lycopersicum_chromosomes.2.50.fa.dust.asnb 
+-out S_lycopersicum_chromosomes_2_50_dust 
+-title S_lycopersicum_chromosomes_2_50_dusted_for_BLAST & 
+
+& blastn -db ~/PATH/S_lycopersicum_chromosomes_2_50_dust -query ~/PATH/MESSI_solanums-lahptm.fasta \
+-outfmt "6" -out ~/PATH/MESSI-lahptm_blast_table_vs_lycopersicum250.blast &
+
+
+### From the blast file, manually disscard subjects with start-end lower than 5000 bp, generating a 'input_positions.txt' tab-delimited file (chromosome, start, end of the blast subject).
+# Using a python script, generate from this a bed4 file. This file will have positions increased in 5000 bp bidirectionally.
+# Run python script
+# FILE:		1_generates bed4 from chr_start_end list check start bigger.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  # to tell de time it take to process
+
+in_filename= "~/PATH/"          
+out_filename= "~/PATH/"      # this is the out_file, its a .bed4 (chr,start,end,ID)
+
+#####################################################################
+###define the 'CountLines' function to count the lines a the file ###
+#####################################################################
+def CountLines (filename):    
+    with open (filename, 'r') as myfile:     
+        count=sum(1 for line in myfile if line.startswith('S'))
+    return count
+#####################################################################    
+
+### open the list of TEs and count
+
+total_counts=CountLines (in_filename)
+print total_counts, "lines in input file", "  --- %s minutes run---" %((time.time()-start_time)/60)
+
+### open in and out files, and parse to generate the bed file
+
+out_bed_file = open(out_filename,"w")     # will be the out file, a bed4 format
+in_list_file = open(in_filename, "r")     
+
+for genes in in_list_file:
+    chromosome, start, end = genes.strip("\n").split('\t')
+    start_=int(start)
+    end_=int(end)
+    if start_>end_:
+        end=start_
+        start=end_   
+    start=int(start)-5000; start_name = str(start)
+    end=int(end)+5000; end_name = str(end)
+    name = chromosome+':'+start_name+'-'+end_name
+    print name 
+        
+    out_line = [chromosome, '\t', start_name, '\t', end_name, '\t', name, '\n']     # generates de components of the .bed4 file
+    for item in out_line: 
+        out_bed_file.write(item)         # writing each component to a new .tab delimited file, .bed6 format                     
+in_list_file.close()
+out_bed_file.close() 
+
+total_counts=CountLines (out_filename)
+print total_counts, "lines in output file", "  --- %s minutes run---" %((time.time()-start_time)/60)
+print "Final: --- %s minutes run---" %((time.time()-start_time)/60)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+### generate a fasta file with sequences from S_lycopersicum
+
+$ bedtools getfasta -fi ~/PATH/S_lycopersicum_chromosomes.2.50.fa \
+-bed ~/PATH/output_positions.txt \
+-fo ~/PATH/fasta_out_lycopersicum.fa -name &
+
+
+### Run LTR_finder
+# Athal-tRNAs.fasta contains publically available sequences of A.thaliana tRNAs.
+# Minumun lenght of LTRs here is 400, minumum distance between LTRs is 5000
+
+$ ltr_finder -D 30000 -d 5000 -L 5000 -l 400 -s Athal-tRNAs.fasta fasta_out_lycopersicum.fa > LTRs_in_output-positions_lycopersicum.txt &
+
+
+### Parse LTR_finder report
+# Run python script, it generates a report_LTR-Finder_MESSI_lycopersicum.txt file
+# FILE:		2_parse LTR_finder log_lycoper.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+### PARSE LTR_FINDER LOG ###
+import time
+start_time=time.time()  #to tell de time it take to process
+
+### FILES ###
+#path_in='~/PATH/'
+path_out='~/PATH/'
+
+filename = "LTRs_in_output-positions_lycopersicum.txt"   # this is the log file from LTR_FINDER
+out_file = "report_LTR-Finder_MESSI_lycopersicum.txt"    # this is the outcame of parsing the report
+
+map_object = ['1','2','3','4','5','6','7','8','9','10','11','12','13','14','15'] # number of possible startings for each line, manually assesed from LTR_FINDER report
+
+#####################################################################
+###define the 'CountLines' function to count the lines a the file ###
+#####################################################################
+def CountLines (filename):      
+    LTRcount = 0
+    number = None
+    with open ('%s%s' %(path_out,filename), 'r') as myfile:     
+        count=sum(1 for xline in myfile if xline.startswith('>Sequence:'))
+    with open ('%s%s' %(path_out,filename), 'r') as myfile:      
+        for xline in myfile:
+            for number in map_object:
+                if xline.startswith('[%s] SL2.50' %number):
+                    print xline
+                    LTRcount = LTRcount+1 
+        NoneLTRcount=sum(1 for xline in myfile if xline.startswith('No LTR Retrotransposons'))
+    return count,LTRcount,NoneLTRcount
+######################################################################
+
+############
+### MAIN ###
+############
+
+### count number of recognized LTRs TEs
+total_counts, Number_LTRs,None_LTRs =CountLines (filename)
+print "number of sequences in file to recognize LTRs TEs : ",total_counts
+print "number of non-unique recognized LTRs TEs : ",Number_LTRs
+print "number of failed areas for LTRs TEs recogniztion : ",None_LTRs, "  --- %s minutes run---" %((time.time()-start_time)/60)
+
+### make dictionary of each recognized LTR, use line'[%s] SL2.50' as key
+My_Dict = {}
+with open ('%s%s' %(path_out,filename)) as infile: 
+    for in_line in infile:       
+        in_line = in_line.strip(' ').strip('\n')
+        for number in map_object:
+                if in_line.startswith('[%s] SL2.50' %number):
+                    My_Dict[in_line] = []
+
+### parse the file recognizing the area with the LTRs
+InFile = open('%s%s' %(path_out,filename),"r")     
+key = None
+for line in InFile:    
+    line = line.strip(' ').strip('\n')
+    if line.startswith('Program'):continue
+    if line.startswith('Version'):continue
+    if line.startswith('Load'):continue
+    if line.startswith('Predict protein'): continue
+        
+    for number in map_object:
+                if line.startswith('[%s] SL2.50' %number):
+                    key = line[:]
+                    line = line.replace ('[%s] ' %number, "")
+                    x,y = line.split(' ') 
+                    chromosome_seq,position = x.split(":")
+                    start_seq,end_seq = position.split("-")
+                    #print chromosome_seq, start_seq,end_seq
+            
+                else:
+                    if line.startswith('No LTR Retrotransposons Found'): break
+                    if line.startswith('Location'):
+                        line = line.replace ('Location : ', "")
+                        a,b = line.split(' Len: ') 
+                        start_TE, end_TE = a.split(" - ")         # catch the start and end of the TE, which has to be recalculated from the position of the area
+                        lenght_TE, c = b.split(" ")               # catch the lenght of the TE                     
+                        #print lenght_TE,
+                        
+                        start_new = int (start_seq)+int(start_TE)                  # recalculation of the start and end of the TE in the genomic position
+                        end_new = int (start_seq)+int(end_TE)
+                        name = chromosome_seq+':'+str(start_new)+'-'+str(end_new)  # generates the name of the TEs, as Chr:start-end
+                        #print name
+                        
+                    if line.startswith("Score"):
+                        line = line.replace ("Score    : ", "")
+                        d,e,f,g = line.split(' ') 
+                        g = g.replace("similarity:", "")         
+                        ltr_similarity = g.replace("]", "")           # catch the similaryty between LTRs        
+                        #print ltr_similarity,
+                        
+                    if line.startswith("5'-LTR"):
+                        line = line.replace ("5'-LTR   : ", "")
+                        h,i = line.split(' Len: ') 
+                        start_5ltr, end_5ltr = h.split(" - ")         # catch the start and end of the 5LTR, which has to be recalculated from the position of the area
+                        lenght_5ltr = i                               # catch the lenght of the 5LTR                     
+                        
+                        start_5ltr_new = int (start_seq)+int(start_5ltr)  # recalculation of the start and end of the TE in the genomic position
+                        end_5ltr_new = int (start_seq)+int(end_5ltr)
+                        
+                    if line.startswith("3'-LTR"):
+                        line = line.replace ("3'-LTR   : ", "")
+                        j,k = line.split(' Len: ') 
+                        start_3ltr, end_3ltr = j.split(" - ")         # catch the start and end of the 5LTR, which has to be recalculated from the position of the area
+                        lenght_3ltr = k                               # catch the lenght of the 5LTR                     
+                        #print lenght_TE,
+                        
+                        start_3ltr_new = int (start_seq)+int(start_3ltr)  # recalculation of the start and end of the TE in the genomic position
+                        end_3ltr_new = int (start_seq)+int(end_3ltr)
+                        
+                        #Imput data in dictionary
+                        My_Dict[key] = [name,'\t',lenght_TE,'\t',lenght_5ltr,'\t',start_5ltr_new,'\t',end_5ltr_new,'\t',lenght_3ltr,'\t',start_3ltr_new,'\t',end_3ltr_new,'\t',ltr_similarity,'\n']   
+
+### write report
+OutFile = open('%s%s' %(path_out,out_file),"w")     # will be the out file
+out_title = ['Area', '\t', 'TE_name', '\t','lenght_TE', '\t','lenght_5ltr','\t','start_5ltr','\t','end_5ltr','\t','lenght_3ltr','\t','start_3ltr','\t','end_3ltr','\t','ltr_similarity','\n']
+for title in out_title:
+    OutFile.write('%s' %title)
+for keys in My_Dict:
+    OutFile.write('%s' %keys)
+    OutFile.write('\t')
+    for out_line in My_Dict[keys]:
+        OutFile.write('%s' %out_line)
+
+### end
+OutFile.close()                       
+InFile.close()
+print "Final: --- %s minutes run---" %((time.time()-start_time)/60)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+### Manually filter the port for unique LTR_TE, and generate a tab-delimited file with the 'names_TE': input_file_lycopersicum.txt 
+# each name has the coordinates in the genome.
+# From input_file_lycopersicum.txt, then generate a bed4 file to imput in bedtools 'output_MESSI_lycopersicum.txt'
+
+
+### Manually, match 'output_MESSI_lycopersicum.txt' with 'report_LTR-Finder_lycopersicum' (name unique for 'name_TEs') to store the information from the bed file (i.e. position) and the LTR-FINDER log (eg. LTR size).
+# Manually check the resulting file final_new_putative_huge_LTRs.txt, to avoid mis-annotations (choose biggest element in overlapping cases).
+# Some cases can not be solved manually and remain un-annotated.
+# Manually generate a .bed file input.txt with the resulting list, to recover sequences
+
+
+### Recover sequences from the resulting positions
+
+$ bedtools getfasta -fi ~/PATH/S_lycopersicum_chromosomes.2.50.fa \
+-bed input.txt \
+-fo fasta_new_MESSI_lycopersicum_modif_solved.fa -name &
+
+
+# Run python script, generating a new .fasta file new_putative_MESSI_noN_lycopersicum.fasta, which selects for size and complete elements (no Ns)
+# Selected size between 11-30 kb is based on experience during the development of the workflow, in most cases hits were above 11 kb.
+# FILE:		8_input fasta_select 11 to 30 kb sized MESSI type_with SeqRecords.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+from Bio import SeqIO
+from Bio.SeqIO import QualityIO as qio
+from Bio.Seq import Seq
+from Bio.Alphabet import IUPAC
+start_time=time.time()  #to tell de time it take to process
+
+count=0
+count_size=0
+count_out=0
+size_max=30000
+size_min=11000
+
+Filename = "new_putative_MESSI_noN_lycopersicum.fasta" 
+OutFilename = "%sto%sbp_MESSItype.fasta" %(size_min,size_max)	# out file with selected fasta ###
+
+### Opens the fasta with sequences
+
+input_handle = open("~/PATH/%s" %Filename, "rU")      
+output_handle = open("~/PATH/%s" %OutFilename, "w") 
+
+for record in SeqIO.parse(input_handle, "fasta") :
+    count=count+1 
+    print len(record)     
+    if len(record) < size_max and len(record) > size_min:              
+        count_size=count_size+1
+        sequence = record.seq
+        if 'N' not in sequence:
+            SeqIO.write(record, output_handle, "fasta") # writes into file
+            print record.id, len(record) 
+            count_out=count_out+1   
+input_handle.close()
+output_handle.close()
+
+print ' total number of records= ',count
+print ' number of records matching between ',size_min, ' and ', size_max, ' Kb = ',count_size
+print ' number of records passed to the out file, ',count_out
+print '.fasta file modified in         ', "--- %s minutes run ---" %((time.time()-start_time)/60) 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+### Manually used NCBI discontinuous MEGABLAST on 11000to30000bp_MESSItype.fasta to asses similarity with INT_03_147 and decide on final list.
+# Extract final hits from 'new_putative_MESSI_noN_lycopersicum.fasta' file, and recover valuable data of each final hit from matched 'output_MESSI_lycopersicum.txt' and 'report_LTR-Finder_lycopersicum'.
+# Generate 80_plus_16_MESSI_lycopersicum_PAPER.txt file, which is a .bed4 with position as name
+
+### Generate a .gff3 file of hist for RNA-seq counting
+# FILE:		X_generates gff3 for Tomato MESSI from the bed or txt file_to input in HTseq count.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+### inputs a tab file with the chromosome, starts, end and position (as name) of the MESSI areas. 
+
+inputFile = "~/PATH/80_plus_16_MESSI_lycopersicum_PAPER.txt" ### is a .bed4 file
+
+y=0     #counter for number of TE (lines in the .txt in_file, starting with 'S' from "Solanum")   
+with open(inputFile) as infile:           #opening .txt file
+        for line in infile:
+            if line.startswith('S'):                     #for/if statments to count the number of TE (lines)
+                y=y+1       
+print '#TE number is: ',y,'\n'
+
+Complete_list = ["SL2.50ch00:4247298-4266301",
+"SL2.50ch01:11217714-11239354",
+"SL2.50ch01:14956154-14973699",
+"SL2.50ch01:24305286-24323573",
+"SL2.50ch01:41336954-41358216",
+"SL2.50ch01:53088999-53102684",
+"SL2.50ch01:55716275-55734619",
+"SL2.50ch01:55875769-55895141",
+"SL2.50ch01:67257938-67275078",
+"SL2.50ch01:68283574-68302621",
+"SL2.50ch01:73774550-73796110",
+"SL2.50ch01:84236756-84257028",
+"SL2.50ch02:3689138-3710936",
+"SL2.50ch03:12972411-12989187",
+"SL2.50ch03:30388632-30407467",
+"SL2.50ch03:65775493-65792171",
+"SL2.50ch03:66569917-66591142",
+"SL2.50ch04:12392600-12413105",
+"SL2.50ch04:16775608-16796130",
+"SL2.50ch04:27001528-27020749",
+"SL2.50ch04:38378096-38399367",
+"SL2.50ch04:45139008-45161804",
+"SL2.50ch04:45379810-45398296",
+"SL2.50ch04:49645261-49666013",
+"SL2.50ch04:51846938-51867919",
+"SL2.50ch05:28566506-28586964",
+"SL2.50ch05:28882101-28893224",
+"SL2.50ch05:45880613-45901028",
+"SL2.50ch05:50577255-50594396",
+"SL2.50ch05:56038867-56059478",
+"SL2.50ch05:56393103-56411519",
+"SL2.50ch05:56525674-56543591",
+"SL2.50ch06:13179008-13199991",
+"SL2.50ch07:10044830-10064359",
+"SL2.50ch07:29515309-29534424",
+"SL2.50ch07:44476431-44496382",
+"SL2.50ch07:53569777-53590134",
+"SL2.50ch07:55620735-55641000",
+"SL2.50ch07:63562535-63584713",
+"SL2.50ch07:7886391-7905455",
+"SL2.50ch08:15563144-15582914",
+"SL2.50ch08:39999599-40016405",
+"SL2.50ch08:48413536-48432977",
+"SL2.50ch08:52102031-52122837",
+"SL2.50ch08:52194714-52215972",
+"SL2.50ch08:52808201-52823088",
+"SL2.50ch08:54801252-54821130",
+"SL2.50ch08:62827097-62842251",
+"SL2.50ch08:63858067-63879915",
+"SL2.50ch08:8227509-8251532",
+"SL2.50ch08:9207103-9225284",
+"SL2.50ch09:33478140-33498926",
+"SL2.50ch09:39693417-39710814",
+"SL2.50ch09:41928560-41949540",
+"SL2.50ch09:57752134-57770220",
+"SL2.50ch09:59654956-59674787",
+"SL2.50ch09:59816784-59832213",
+"SL2.50ch09:60839933-60861211",
+"SL2.50ch09:62722186-62744110",
+"SL2.50ch09:6782357-6799804",
+"SL2.50ch09:7401593-7423937",
+"SL2.50ch10:26709894-26731867",
+"SL2.50ch10:34487169-34506330",
+"SL2.50ch10:39743501-39762501",
+"SL2.50ch10:56609569-56631907",
+"SL2.50ch10:58381972-58402439",
+"SL2.50ch10:58910728-58932909",
+"SL2.50ch10:59450822-59470378",
+"SL2.50ch10:61287333-61306885",
+"SL2.50ch11:26204687-26223008",
+"SL2.50ch11:36713318-36735017",
+"SL2.50ch11:43064766-43085369",
+"SL2.50ch11:51001199-51026091",
+"SL2.50ch12:26384096-26403721",
+"SL2.50ch12:33353487-33373647",
+"SL2.50ch12:40701650-40723029",
+"SL2.50ch12:44334658-44353655",
+"SL2.50ch12:53031295-53052258",
+"SL2.50ch12:55518207-55536059",
+"SL2.50ch12:61158063-61178764"]
+
+Incomplete_list = ["SL2.50ch00:10864224-10882361",
+"SL2.50ch00:3980524-3998139",
+"SL2.50ch01:67015227-67036900",
+"SL2.50ch02:17912551-17935639",
+"SL2.50ch02:26924087-26946689",
+"SL2.50ch03:26485027-26500859",
+"SL2.50ch04:24238724-24259830",
+"SL2.50ch04:58142167-58149451",
+"SL2.50ch05:24173186-24193866",
+"SL2.50ch07:4623790-4643024",
+"SL2.50ch09:18570632-18592047",
+"SL2.50ch09:59485816-59507088",
+"SL2.50ch10:11675111-11697639",
+"SL2.50ch10:27632013-27649626",
+"SL2.50ch11:3906116-3928438",
+"SL2.50ch12:31202119-31224415"]
+
+### take TEs regions from incoming txt file and writes a new .gff3 file
+print len (Complete_list), len(Incomplete_list)
+
+out_file = open("~/PATH/MESSI_tomato_forHTseq_PAPER.gff3","w")          # this will be the new .gff3 file
+
+count_complete =0
+count_incomplete =0
+with open (inputFile) as infile:
+    for in_line in infile:
+        
+        if in_line.startswith('Feature'):continue
+
+        if in_line.startswith('S'):
+            Statu = ""            
+            
+            line = in_line.strip('\n')  # to keep the name, now 'tag', which will be the ID attribute
+            parts = line.strip().split("\t")      # parts is a list out of the line incoming. parts [0] is chromosome, and parts[1] is position (start-end)            
+            seqid_= str(parts[0])                   # first line of a .gff3 file, is the chromosome - seqID
+            start_ = str(parts[1])
+            end_ = str(parts[2])                    # get the start and end
+            tag= str(parts[3])                      # get the ID
+            
+            if tag in Complete_list:
+                count_complete +=1
+                Statu = "complete"
+                ID = "Sly_MESSI_com_"+str(count_complete)             
+            else:
+                if tag in Incomplete_list:
+                    count_incomplete +=1
+                    Statu = "incomplete"
+                    ID = "Sly_MESSI_inc_"+str(count_incomplete)
+                                    
+            if start_=='0': start_='1'              # to avoid error: 'start too small' from HTSeq 
+                     
+            source_='Slycopersicum2.5_MESSI'
+            type_='exon'                            # for the column 3 (type) for exon, to call expression
+            score_='0'
+            strand_='+'           
+            phase_='.'
+            
+            attributes = []     #list to generates the attributes
+            attributes.insert (0,'Parent=%s' %ID)     # modify the attributes adding ID, name and Parent
+            attributes.insert (1,'Name=%s' %ID)       # modify the attributes adding name and ID
+            attributes.insert (2,'ID=%s' %ID)
+            attributes.insert (3,'Position=%s' %tag)
+            attributes.insert (4,'Status=%s' %Statu)
+            attributes_ = ";".join(attributes)        # reconstitute the attributes
+         
+            # generates the line for the .ggf3 file
+            
+            gff3_line=[seqid_, source_, type_, start_, end_, score_, strand_, phase_, attributes_]
+            print gff3_line
+
+            # write the gff3_line to file
+            
+            out_file.write(seqid_+"\t"+source_+"\t"+type_+"\t"+str(start_)+"\t"+str(end_)+"\t"+score_+"\t"+strand_+"\t"+phase_+"\t"+attributes_+"\n")
+        
+print count_complete, count_incomplete
+out_file.close()                       
+infile.close()
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+########################################################
+### G - Remapping without multi-mappers to estimate MESSI trancript levels
+########################################################
+
+
+
+### remap map without multi-hits, STAR option --outFilterMultimapNmax 1
+# Example is shown for tomato MESSI, a similar procedure applies to S. pennellii MESSI.
+# MESSI_tomato_forHTseq_PAPER.gff3 is a file containing the location of annotated MESSI, 
+# resulting from step 'F' (similar to published Supporting_TableS3 but with Type modified to 'exon', such that HT-seq counts genes and MESSI toghether).
+
+
+
+########################################################
+### H - generate annotation file for HT-seq, mixing MESSI with non-overlapping genes
+########################################################
+
+
+
+### Generate GFF3 file for HT-seq
+# from ITAG2.4, select away genes potentially overlapping with the MESSI
+# this is necessary becuase annotations many times wrongly call genes to ORF from TEs
+
+$ bedtools intersect -v -a ~/PATH/ITAG2.4_gene_models.gff3 \
+-b  MESSI_tomato_forHTseq_PAPER.gff3 \
+> ITAG2.4_gene_models_intersected_withMESSI.gff3 &
+
+# final file
+
+$ cat ITAG2.4_gene_models_intersected_withMESSI.gff3 MESSI_tomato_forHTseq_PAPER.gff3 > ITAG2.4_gene_models_plus_MESSI_forPAPER_forHTseq.gff3
+$ sort -k1,1V -k4,4n -k5,5rn -k3,3r ITAG2.4_gene_models_plus_MESSI_forPAPER_forHTseq.gff3 > ITAG2.4_gene_models_plus_MESSI_forPAPER_forHTseq_sorted.gff3
+
+
+
+########################################################
+### H - count with HTseq
+########################################################
+
+
+
+# Run python script
+# FILE:		6_Workflow_for_HTseq_SAMPLES_29_30_31__32_33_34_MESSI_NOmulti.py		
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+import subprocess
+
+# PLACE FILE and RUN from path_output!
+
+### Files & path ###
+path_input_sample = "~/PATH/" 
+path_output      = "~/PATH/"      # NOTE: STAR requires a prefix for all generated files!
+path_star_index =  "~/PATH/"      # goes with the reference to the files. STAR index is in /home/diegosanchez!
+GFF3_annotation =   "ITAG2.4_gene_models.gff3"          # standart annotation of the genome. Clarify 
+
+path_n_file_GTF_HTseq = "~/PATH/ITAG2.4_gene_models_plus_MESSI_forPAPER_forHTseq_sorted.gff3" 	# this file is the annotation prepared for HTseq
+path_output_HTseq = "~/PATH/" 
+
+My_List = ["SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE","SAMPLE"]
+
+################################################################################
+###define CountLines fx to count the lines a the file 
+################################################################################
+def CountLines (pathy,filename):
+    
+    with open ("%s%s" %(pathy,filename), 'r') as myfile: #open the input tab-file with gene exppression  
+        count=sum(1 for line in myfile)       
+    return count   #return the number of lines    
+################################################################################
+
+############
+### MAIN ###
+############
+
+#loop samples
+for sample in My_List:
+    print "\n",sample
+        
+    ###count with HTSeqcount 
+    InFile = "%s_trimmo_star_ITAG2.4_rmdup_picard.sam" %(sample) 
+    OutFile = "HTcount_MESSI_PAPER_%s_trimmo_star_ITAG2.4_rmdup_picard_strandedNO_NOmulti.txt" %(sample)
+    
+    with open ("%s%s" %(path_output_HTseq,OutFile), 'w') as myfile:
+           p = subprocess.Popen(["htseq-count --type=exon --stranded=no --idattr=Parent --quiet %s%s %s" %(path_output,InFile,path_n_file_GTF_HTseq)], shell=True, stdout = myfile)  
+           p.wait()
+           myfile.flush()
+    print "Counted genes in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60) 
+                                                                        
+### END ###
+print "Total time required for processing: --- %s minutes run ---" %((time.time()-start_time)/60)  
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+##################################################################
+##################################################################
+### Workflow for analisis of DNA-seq 			       ###
+##################################################################
+##################################################################
+#Look for reads matching MESSI in tissue-specific PRC-free DNA-seq, to infer DNA copy number
+
+
+
+########################################################
+### I - Mask genome with the TEs under consideration and generate bowtie2 index
+########################################################
+
+
+
+### blast TEs against genome and select areas generating an aligment lenght of at least 75bp
+# fasta_complete_DE_induced_MESSI_lycopersicum.fasta file contains the sequences of target TEs
+
+$ blastn -subject ~/PATH/S_lycopersicum_chromosomes.2.50.fa \
+-query fasta_complete_DE_induced_MESSI_lycopersicum.fasta \
+-max_target_seqs 10000 -outfmt "6" -out blast_table_DE_MESSI_vs_SL2.50.blast &
+
+
+### Manually recover areas of at least 75bp aligment lenght and generate a chr, start, end text file with the subject.id positions.
+# Use python script to generate a bed file of these areas, similar to 1_generates bed4 from chr_start_end list check start bigger.py (but no extension here)
+# Output: 'output_DE_MESSI.bed'
+
+# presort .bed by chromosome and then by start position, and then merge overlapping areas in the .bed file
+
+$ sort -k1,1 -k2,2n output_DE_MESSI.bed > output_DE_MESSI_sorted.bed &
+$ bedtools merge -d 1 -i output_DE_MESSI_sorted.bed > output_DE_MESSI_sorted_merged.bed &
+
+# Again use python script to add a name (for example, as position) in the output_DE_MESSI_sorted_merged.bed file,
+# resulting in the output_DE_MESSI_sorted_merged_name.bed file.
+
+
+### Mask genome and generate bowtie2 indexes of both the masked genome and the target TEs
+
+$ bedtools maskfasta -fi ~/PATH/S_lycopersicum_chromosomes.2.50.fa \
+-bed ~/PATH/output_DE_MESSI_plus_Housekeeping_sorted_merged_name.bed \
+-fo ~/PATH/S_lycopersicum_chromosomes.2.50_maskedMESSI.fa &
+
+$ bowtie2-build S_lycopersicum_chromosomes.2.50_maskedMESSI.fa S_lycopersicum_chromosomes.2.50_maskedMESSI &
+$ bowtie2-build fasta_complete_DE_induced_MESSI_lycopersicum.fasta fasta_DE_MESSI &
+
+
+
+########################################################
+### J - Map DNA-seq data in duplicated lanes
+########################################################
+
+
+
+### Manually trimm raw data (and check quality)
+# example for lane 1 sample
+
+$ java -jar ~/PATH/trimmomatic-0.32.jar PE -threads 2 \
+~/PATH/DNA_tomato_SAMPLE_R1_lane1.fastq.gz \
+~/PATH/DNA_tomato_SAMPLE_R2_lane1.fastq.gz \
+~/PATH/DNA_tomato_SAMPLE_1_lane1_trimmo_paired.fq \
+~/PATH/DNA_tomato_SAMPLE_1_lane1_trimmo_unpaired.fq \
+~/PATH/DNA_tomato_SAMPLE_2_lane1_trimmo_paired.fq \
+~/PATH/DNA_tomato_SAMPLE_2_lane1_trimmo_unpaired.fq \
+ILLUMINACLIP:~/PATH/Trimmomatic-0.32/adapters/TruSeq2-PE.fa:2:10:5:1 &
+
+
+### Map, recover unmapped and re-map in MESSI sequences
+# The workflow generates a "...S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted_RecoveredMapped.bam" file having the reads that map to each considered target TE
+# Note: two lanes were ran for each library, to increse the depth of sequencing 
+# Run python script
+# FILE:		Workflow_DNAseq_tomato_count_DE_MESSI_control_separated_samples_A_B.py	
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+start_time=time.time()  #to tell de time it take to process
+import subprocess
+
+### Files & path 
+path_raw = "~/PATH/" 		# path raw data
+path = "~/PATH/"     		# path for the rest of the analisys
+path_bowtieindex = "~/PATH/" 	# path bowtie2 masked genome, include genome
+path_masked = "~/PATH/" 	# path to TE bowtie index for MESSI
+
+# Define list with samples
+My_List = ["SAMPLE","SAMPLE","SAMPLE","SAMPLE"]
+
+############
+### MAIN ###
+############
+
+for sample in My_List:
+
+    print "/n", sample
+
+    ### mapping lane1 
+    InFile1 = "DNA_tomato_%s_1_lane1_trimmo_paired.fq.gz" %(sample)
+    InFile2 = "DNA_tomato_%s_2_lane1_trimmo_paired.fq.gz" %(sample)
+    OutFile = "DNA_tomato_%s_lane1_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.sam" %(sample)
+        
+    p = subprocess.Popen(["bowtie2 -p 6 --quiet --very-sensitive -X 1000 --non-deterministic -x %s -1 %s%s -2 %s%s -S %s%s" %(path_bowtieindex,path_raw,InFile1,path_raw,InFile2,path,OutFile)], shell=True) 
+    p.wait()
+    print "Mapping lane1 finished in --- %s minutes run ---" %((time.time()-start_time)/60) 
+        
+    ### mapping lane2 
+    InFile1 = "DNA_tomato_%s_1_lane2_trimmo_paired.fq.gz" %(sample)
+    InFile2 = "DNA_tomato_%s_2_lane2_trimmo_paired.fq.gz" %(sample)
+    OutFile = "DNA_tomato_%s_lane2_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.sam" %(sample)
+        
+    p = subprocess.Popen(["bowtie2 -p 6 --quiet --very-sensitive -X 1000 --non-deterministic -x %s -1 %s%s -2 %s%s -S %s%s" %(path_bowtieindex,path_raw,InFile1,path_raw,InFile2,path,OutFile)], shell=True) 
+    p.wait()
+    print "Mapping lane2 finished in --- %s minutes run ---" %((time.time()-start_time)/60) 
+        
+    #### convert sam to bam lane1
+    InFile = "DNA_tomato_%s_lane1_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.sam" %(sample)
+    OutFile ="DNA_tomato_%s_lane1_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+        
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools view -bS %s%s" %(path,InFile)], shell=True, stdout = myfile) #subprocess.call(["samtools view -bS %s%s" %(path,MappingFile)], shell=True ) 
+            p.wait()
+            myfile.flush()
+    print "BAM lane1 file generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)    
+        
+    #### convert sam to bam lane2
+    InFile = "DNA_tomato_%s_lane2_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.sam" %(sample)
+    OutFile ="DNA_tomato_%s_lane2_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+        
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools view -bS %s%s" %(path,InFile)], shell=True, stdout = myfile)  
+            p.wait()
+            myfile.flush()
+    print "BAM lane2 file generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)    
+   
+    # Merge lane1 and lane2 for each sample
+    InFile1 = "DNA_tomato_%s_lane1_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+    InFile2 = "DNA_tomato_%s_lane2_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+    OutFile = "DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+        
+    p = subprocess.Popen(["samtools merge %s%s %s%s %s%s" %(path,OutFile,path,InFile1,path,InFile2)], shell=True) 
+    p.wait()
+    print "Merged lane1y2 BAM files in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+    
+    ### sort
+    InFile = "DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI.bam" %(sample)
+    OutFile ="DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI_sorted.bam" %(sample)
+    p = subprocess.Popen(["samtools sort -o %s%s %s%s" %(path,OutFile,path,InFile)], shell=True) 
+    p.wait()
+    print "Sorted group BAM file in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+        
+    ### index
+    InFile = "DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI_sorted.bam" %(sample)
+    p = subprocess.Popen(["samtools index %s%s" %(path,InFile)], shell=True) 
+    p.wait()
+    print "Index generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+    
+    ### no need to de-duplicate as it was PCR-free sequencing
+
+    ### recover unmapped reads
+    InFile = "DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI_sorted.bam"  %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped.bam" %(sample)
+    
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools view -b -f 4 -h %s%s" %(path,InFile)], shell=True, stdout = myfile)  
+            p.wait()
+            myfile.flush()
+    print "Recovered group reads unmapped generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+
+    ### generate fasq from bam
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped.bam"  %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped.fastq"%(sample)
+    
+    p = subprocess.Popen(["bedtools bamtofastq -i %s%s -fq %s%s" %(path,InFile,path,OutFile)], shell=True) 
+    p.wait()
+    print "Generated group .fastq file in: --- %s minutes run ---" %((time.time()-start_time)/60)    
+
+    ### re-mapping to TE
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped.fastq" %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI.sam" %(sample)
+    
+    p = subprocess.Popen(["bowtie2 -p 6 --quiet --very-sensitive -X 1000 --non-deterministic -x %s -U %s%s -S %s%s" %(path_masked,path,InFile,path,OutFile)], shell=True) 
+    p.wait()
+    print "Mapping to TE finished in --- %s minutes run ---" %((time.time()-start_time)/60) 
+
+    ### convert sam to bam
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI.sam" %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI.bam" %(sample)
+    
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools view -bS %s%s" %(path,InFile)], shell=True, stdout = myfile) #subprocess.call(["samtools view -bS %s%s" %(path,MappingFile)], shell=True ) 
+            p.wait()
+            myfile.flush()
+    print "BAM file generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+     
+    ### sort
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI.bam" %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted.bam"%(sample)
+    p = subprocess.Popen(["samtools sort -o %s%s %s%s" %(path,OutFile,path,InFile)], shell=True) 
+    p.wait()
+    print "Sorted BAM file in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+        
+    ### index
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted.bam"%(sample)
+    p = subprocess.Popen(["samtools index %s%s" %(path,InFile)], shell=True) 
+    p.wait()
+    print "Index generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)    
+    
+    ### report library sizes ###
+    InFile = "DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI_sorted.bam" %(sample)
+    OutFile = "counted_library_DNA_tomato_%s_merged_trimmo_paired_bowtie2_verysensitive_S_lycopersicum_2_50_maskedMESSI_sorted.txt" %(sample)
+    
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools flagstat %s%s" %(path,InFile)], shell=True, stdout = myfile)  
+            p.wait()
+            myfile.flush()
+    print "Counted library in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)             
+ 
+    ### recover mapped reads to TEs
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted.bam" %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted_RecoveredMapped.bam" %(sample)
+    
+    with open ("%s%s" %(path,OutFile), 'w') as myfile:
+            p = subprocess.Popen(["samtools view -F 4 -b -h %s%s" %(path,InFile)], shell=True, stdout = myfile) #subprocess.call(["samtools view -bS %s%s" %(path,MappingFile)], shell=True ) 
+            p.wait()
+            myfile.flush()
+    print "Recovered reads mapped to TEs generated in: ",  "--- %s minutes run ---" %((time.time()-start_time)/60)
+
+    ### generate fasq from bam
+    InFile = "Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted_RecoveredMapped.bam" %(sample)
+    OutFile ="Reads_DNA_tomato_%s_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted_RecoveredMapped.fastq"%(sample)
+    
+    p = subprocess.Popen(["bedtools bamtofastq -i %s%s -fq %s%s" %(path,InFile,path,OutFile)], shell=True) 
+    p.wait()
+    print "Generated .fastq file in: --- %s minutes run ---" %((time.time()-start_time)/60) 
+
+### removed unpaired and sam
+OutFile_unpaired = "*unpaired.fq"
+OutFile_sam = "*.sam"
+
+p = subprocess.Popen(["rm %s%s" %(path,OutFile_unpaired)], shell=True) 
+p.wait()
+
+p = subprocess.Popen(["rm %s%s" %(path,OutFile_sam)], shell=True) 
+p.wait()
+print "Removed unpaired and sam files"      
+          
+### END ###
+print "Process time required: --- %s minutes run ---" %((time.time()-start_time)/60)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+########################################################
+### K - Run count-intersect for each sample
+########################################################
+
+
+
+### Make a bed file with the TEs used for the second re-mapping, using the .fasta file as input
+# Run python script
+# FILE:		input fasta and count number of records_make a bed file_with SeqRecord.py
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+import time
+from Bio import SeqIO
+from Bio.SeqIO import QualityIO as qio
+from Bio.Seq import Seq
+from Bio.Alphabet import IUPAC
+start_time=time.time()  #to tell de time it take to process
+
+path = "~/PATH/"
+Filename = "fasta_complete_DE_induced_MESSI_lycopersicum.fasta" 
+OutBed = "fasta_complete_DE_induced_MESSI_lycopersicum.bed" 
+
+###  Opens the fasta
+count=0
+input_handle = open("%s%s" %(path,Filename), "rU")    # opens .fasta with sequences 
+output_handle = open("%s%s" %(path,OutBed), "w")      
+
+for record in SeqIO.parse(input_handle, "fasta") :
+    count=count+1 
+    print record.id
+    print len(record)
+    output_handle.write("%s\t1\t%s\n" %(record.id,len(record)))
+output_handle.close()       
+input_handle.close()
+
+print ' total number of records= ',count
+print '.fasta file read in ', "--- %s minutes run ---" %((time.time()-start_time)/60)   
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# count number of hits for each feature in bam file (example for leaves_controlA sample)
+
+$ bedtools intersect -c -a fasta_complete_DE_induced_MESSI_lycopersicum.bed \
+-b Reads_DNA_tomato_leaves_controlA_merged_trimmo_paired_bowtie2_S_lycopersicum_2_50_maskedMESSI_sorted_Unmapped_mapMESSI_sorted_RecoveredMapped.bam \
+> Reads_DNA_tomato_leaves_controlA_count_intersect.txt &
+
+
+
+##################################################################
+##################################################################
+### Workflow for analisis smRNAs 			       ###
+##################################################################
+##################################################################
+# example with ts2.fastq, manually in command-line 
+
+
+
+### Manually trim adaptor from data (adaptor >Zac_1 TGGAATTCTCGGGTGCCAAGGAACTCCAGTCAC in adaptor.fa file)
+ 
+$ java -jar ~/PATH/trimmomatic-0.32.jar SE -threads 2 \
+-trimlog trimmolog.txt \
+ts2.fastq \
+ts2_raw_trimmo_2_10_5_1_adaptor.fastq \
+ILLUMINACLIP:~/PATH/adaptor.fa:2:10:5:1 \
+CROP:34 MINLEN:14 &
+
+
+### Map
+
+$ bowtie2 --quiet --score-min L,0,0 -x \
+~/PATH/ \
+-U ~/PATH/ts2_raw_trimmo_2_10_5_1_adaptor.fastq \
+-S \
+~/PATH/ts2_raw_trimmo_2_10_5_1_bowtie2_S_lycopersicum_2_50_nomixed.sam --no-mixed --no-discordant --no-unal &
+
+
+### Merge ts2 and ve2 mappings
+
+$ samtools merge merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed.bam\
+ts2_raw_trimmo_2_10_5_1_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sam_sorted.bam \
+ve2_raw_trimmo_2_10_5_1_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sam_sorted.bam &
+
+
+### Select for specific MESSI sequences (intersect with bedfile)
+
+$ bedtools intersect -wa (-header) -abam merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed.bam \
+-b 80_plus_16_MESSI_lycopersicum_PAPER.txt \
+> merged_ts2ve2_in_MESSI_lycopersicum.bam &
+
+$ samtools view -h -o merged_ts2ve2_in_80_plus_16_MESSI_lycopersicum_PAPER.sam merged_ts2ve2_in_80_plus_16_MESSI_lycopersicum_PAPER.bam &
+
+
+### Make a genome coverage and output a BedGraph
+
+# sort
+$ samtools sort merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed.bam \
+merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sorted &
+
+$ samtools sort merged_ts2ve2_in_80_plus_16_MESSI_lycopersicum_PAPER.bam \
+merged_ts2ve2_in_80_plus_16_MESSI_lycopersicum_PAPER_sorted &
+
+
+# Coverage with .bam as input, generating bedgraph independently for the two strands (example with whole profile)
+
+$ bedtools genomecov -ibam merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sorted.bam -g SL2.50_genome.txt -strand + -bga >  merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sorted_strnd+_ceros.bedgraph &
+$ bedtools genomecov -ibam merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sorted.bam -g SL2.50_genome.txt -strand - -bga >  merged_ts2ve2_bowtie2_score0000_S_lycopersicum_2_50_nomixed_sorted_strnd-_ceros.bedgraph &
+
+
+
+##################################################################
+##################################################################
+### Workflow for analisis Bis-seq 			       ###
+##################################################################
+##################################################################
+# manually in command-line 
+
+
+
+### Trimm fastq files
+
+$ java -jar ~/PATH/trimmomatic-0.32.jar PE -threads 6 \
+LVM_R1.fastq.gz \
+LVM_R2.fastq.gz \
+LVM_methylation_R1_raw_trimmo_paired_2_10_5_1.fastq \
+LVM_methylation_R1_raw_trimmo_unpaired_2_10_5_1.fastq \
+LVM_methylation_R2_raw_trimmo_paired_2_10_5_1.fastq \
+LVM_methylation_R2_raw_trimmo_unpaired_2_10_5_1.fastq \
+ILLUMINACLIP:~/PATH/Trimmomatic-0.32/adapters/TruSeq2-PE.fa:2:10:5:1 &
+
+
+### Bismark alignments (through bowtie2)
+
+# Preparation
+$ mkdir ~/PATH/bismark_alignment/
+$ mkdir ~/PATH/Bisulfite_Genome/CT_conversion/
+$ mkdir ~/PATH/Bisulfite_Genome/GA_conversion/
+$ bismark_genome_preparation --bowtie2 --path_to_bowtie ~/PATH/ --verbose ~/PATH/ &
+
+# Run Bismark
+$ bismark --bowtie2 --path_to_bowtie ~/PATH/ \
+-N 1 -L 20 -p 2 -X 1000 -score_min L,0,-0.8 -R 3 \
+~/PATH/ \
+-1 ~/PATH/LVM_methylation_R1_raw_trimmo_paired_2_10_5_1.fastq -2 ~/PATH/LVM_methylation_R2_raw_trimmo_paired_2_10_5_1.fastq &
+
+
+### Run deduplication
+
+# Change the file name removing .fastq
+$ mv LVM_methylation_R1_raw_trimmo_paired_2_10_5_1.fastq_bismark_bt2_pe.bam LVM_methylation_trimmo_paired_bismark_bt2_pe.bam
+
+# Deduplication
+$ deduplicate_bismark -p LVM_methylation_trimmo_paired_bismark_bt2_pe.bam &
+
+
+### Methylation call
+
+$ bismark_methylation_extractor -p --comprehensive \
+--bedGraph --CX \
+--cytosine_report --CX --genome_folder ~/PATH/ \
+LVM_methylation_trimmo_paired_bismark_bt2_pe.deduplicated.sam &
+
+
+### Generate with R a bedgraph for each citosine context 
+# Run R script (CX_report function is from DRM caller (Catoni et al. 2018)
+# Script:
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+mincov <- 3
+
+system("mkdir -p ..~/PATH/objects/bedgraph_files")
+for (i in conditions) {
+    cat("loading CXreport file \n")
+    CX_report <- readBismark(paste0("..~/PATH/data/CX_reports/",i,"_corrected.CX_report.txt"))
+  cat("generating bedGraph files \n")
+  for (context in c("CG","CHG","CHH")) {
+    percontext <- CX_report[which(CX_report$context==context)]
+    percontext <- percontext[which(percontext$readsN > mincov)]
+    #percontext <- renameSeqlevels(percontext,names.correct)
+    score_percontext <- mcols(percontext)$readsM / mcols(percontext)$readsN
+    mcols(percontext) <- data.frame(score=score_percontext)
+    export.bedGraph(percontext, paste("..~/PATH/objects/bedgraph_files/",i,"_",context,".bedGraph", sep=""))
+  }
+
+  #call bedGraphToBigWig to transform in bw files
+  cat("generating BigWig files \n")
+  system(paste0("bedGraphToBigWig ","..~/PATH/objects/bedgraph_files/", i, "_CG.bedGraph ",
+                "../..~/PATH/annotation/chrom_size_Tomato_Pl_2.50.txt ","../objects/bedgraph_files/",i,"_CG.bw"))
+  system(paste0("bedGraphToBigWig ","../objects/bedgraph_files/", i, "_CHG.bedGraph ",
+                "../..~/PATH/annotation/chrom_size_Tomato_Pl_2.50.txt ","../objects/bedgraph_files/",i,"_CHG.bw"))
+  system(paste0("bedGraphToBigWig ","../objects/bedgraph_files/", i, "_CHH.bedGraph ",
+                "../..~/PATH/annotation/chrom_size_Tomato_Pl_2.50.txt ","../objects/bedgraph_files/",i,"_CHH.bw"))
+                
+rm(CX_report)
+}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+
+
+
+ 
+
+
+
+
+
+
+
+
+
