@@ -9,3 +9,4 @@
 # The workflow may also displays some historical contingencies, as I'm learning while doing.
 # None of this work would be possible without the kind bioinformatics support of Varodom Charoensawan, Hugo Tavares, Jeremy Gruel,
 # Hajk-Georg Drost, Anna Gogleva and Yassin Refahi. The last R scrip was kindly shared by Marco Catoni.
+# Diego H. Sanchez (diego.sanchez@agro.uba.ar)
